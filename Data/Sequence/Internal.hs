@@ -15,6 +15,7 @@
 {-# LANGUAGE ViewPatterns #-}
 #endif
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE RankNTypes #-}
 
 {-# OPTIONS_HADDOCK not-home #-}
 
@@ -1499,6 +1500,7 @@ cycleNMiddle n
 
 -- | \( O(1) \). Add an element to the left end of a sequence.
 -- Mnemonic: a triangle with the single element at the pointy end.
+{-# NOINLINE (<|) #-}
 (<|)            :: a -> Seq a -> Seq a
 x <| Seq xs     =  Seq (Elem x `consTree` xs)
 
@@ -3794,8 +3796,23 @@ partition p = toPair . foldl' part (empty :*: empty)
 -- | \( O(n) \).  The 'filter' function takes a predicate @p@ and a sequence
 -- @xs@ and returns a sequence of those elements which satisfy the
 -- predicate.
+{-# NOINLINE [1] filter #-}
 filter :: (a -> Bool) -> Seq a -> Seq a
 filter p = foldl' (\ xs x -> if p x then xs `snoc'` x else xs) empty
+
+{-# INLINE [0] filterFB #-} -- See Note [Inline FB functions]
+filterFB :: (a -> b -> b) -> (a -> Bool) -> a -> b -> b
+filterFB c p x r | p x       = x `c` r
+                 | otherwise = r
+
+{-# RULES
+"filter"     [~1] forall p xs.  filter p xs = buildS (\c n -> foldr (filterFB c p) n xs)
+"filterList" [1]  forall p.     foldr (filterFB (<|) p) (Seq EmptyT) = filter p
+"filterFB"        forall c p q. filterFB (filterFB c p) q = filterFB c (\x -> q x && p x)
+ #-}
+
+buildS :: forall a. (forall b. (a -> b -> b) -> b -> b) -> Seq a
+buildS g = g (<|) empty
 
 -- Indexing sequences
 
